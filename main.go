@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -45,6 +46,7 @@ func main() {
 	diagRouter.HandleFunc("/health", func(
 		w http.ResponseWriter, _ *http.Request) {
 		diagLogger.Info("health was called")
+		runtime.GC()
 		w.WriteHeader(http.StatusOK)
 	})
 	diagRouter.Handle("/debug/vars", expvar.Handler())
