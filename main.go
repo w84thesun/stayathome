@@ -37,11 +37,11 @@ func main() {
 
 	log.Info("starting application")
 
-	c, err := statsd.New(net.JoinHostPort("", config.StatsdPort))
+	c, err := statsd.New(net.JoinHostPort("127.0.0.1", config.StatsdPort))
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.Namespace = "stayathome"
+	c.Namespace = "stayathome."
 
 	r := mux.NewRouter()
 	server := http.Server{
@@ -54,16 +54,16 @@ func main() {
 	diagRouter.Handle("/debug/vars", expvar.Handler())
 	diagRouter.HandleFunc("/health", func(
 		w http.ResponseWriter, _ *http.Request) {
-		err := c.Incr("health_calls", []string{}, 1)
+		err := c.Incr("health_calls", []string{}, 1.0)
 		if err != nil {
-			diagLogger.Errorw("Couldn't increment health_calls", "err", err)
+			diagLogger.Errorw("failed to increment health_calls", "err", err)
 		}
-		diagLogger.Info("health was called")
+		diagLogger.Info("health called")
 		w.WriteHeader(http.StatusOK)
 	})
 	diagRouter.HandleFunc("/gc", func(
 		w http.ResponseWriter, _ *http.Request) {
-		diagLogger.Info("Calling GC...")
+		diagLogger.Info("calling GC")
 		runtime.GC()
 		w.WriteHeader(http.StatusOK)
 	})
