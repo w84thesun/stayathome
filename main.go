@@ -15,8 +15,8 @@ import (
 )
 
 type Config struct {
-	ServerPort string `env:"SERVER_PORT,required"`
-	DiagPort   string `env:"DIAG_PORT,required"`
+	ServerPort           string `env:"SERVER_PORT,required"`
+	DiagnosticServerPort string `env:"DIAG_PORT,required"`
 }
 
 func main() {
@@ -46,7 +46,7 @@ func main() {
 	})
 
 	diag := http.Server{
-		Addr:    net.JoinHostPort("", config.DiagPort),
+		Addr:    net.JoinHostPort("", config.DiagnosticServerPort),
 		Handler: diagRouter,
 	}
 
@@ -82,14 +82,14 @@ func main() {
 	timeout, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFunc()
 
-	err = diag.Shutdown(timeout)
-	if err != nil {
-		// ?
-	}
-
 	err = server.Shutdown(timeout)
 	if err != nil {
-		// ?
+		log.Errorw("business server shutdown error", "error", err)
+	}
+
+	err = diag.Shutdown(timeout)
+	if err != nil {
+		log.Errorw("diagnostics server shutdown error", "error", err)
 	}
 
 	log.Info("application stopped")
