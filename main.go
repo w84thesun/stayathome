@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"net"
 	"net/http"
 	"os"
@@ -46,6 +47,7 @@ func main() {
 		diagLogger.Info("health was called")
 		w.WriteHeader(http.StatusOK)
 	})
+	diagRouter.Handle("/debug/vars", expvar.Handler())
 
 	diag := http.Server{
 		Addr:    net.JoinHostPort("", config.DiagnosticServerPort),
