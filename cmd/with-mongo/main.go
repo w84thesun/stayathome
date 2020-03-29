@@ -2,25 +2,36 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"expvar"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/caarlos0/env/v6"
-	"github.com/gorilla/mux"
 	"go.uber.org/zap"
+	"gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 type Config struct {
 	ServerPort           string `env:"SERVER_PORT,required"`
 	DiagnosticServerPort string `env:"DIAG_PORT,required"`
 	StatsdPort           string `env:"STATSD_PORT,required"`
+	MongoURI             string `env:"MONGO_URI"`
+}
+
+type Test struct {
+	Name string             `bson:"name"`
+	Id   primitive.ObjectID `bson:"_id"`
 }
 
 func main() {
@@ -37,20 +48,30 @@ func main() {
 
 	log.Info("starting application")
 
+	// start the tracer with zero or more options
+	tracer.Start(tracer.WithServiceName("stayathome"))
+	defer tracer.Stop()
+
 	c, err := statsd.New(net.JoinHostPort("127.0.0.1", config.StatsdPort))
 	if err != nil {
 		log.Fatal(err)
 	}
 	c.Namespace = "stayathome."
 
-	r := mux.NewRouter()
+	r := mux.NewRouter(mux.WithServiceName("stayathome"))
 	server := http.Server{
 		Addr:    net.JoinHostPort("", config.ServerPort),
 		Handler: r,
 	}
 
+	mongo := New("test", config.MongoURI)
+	err = mongo.Connect(context.Background())
+	if err != nil {
+		log.Panicw("failed to connect with mongo", "error", err)
+	}
+
 	diagLogger := log.With("subapp", "diag_router")
-	diagRouter := mux.NewRouter()
+	diagRouter := mux.NewRouter(mux.WithServiceName("stayathome-diag"))
 	diagRouter.Handle("/debug/vars", expvar.Handler())
 	diagRouter.HandleFunc("/health", func(
 		w http.ResponseWriter, _ *http.Request) {
@@ -61,10 +82,30 @@ func main() {
 		diagLogger.Info("health called")
 		w.WriteHeader(http.StatusOK)
 	})
-	diagRouter.HandleFunc("/gc", func(
+	r.HandleFunc("/get-data", func(
 		w http.ResponseWriter, _ *http.Request) {
-		diagLogger.Info("calling GC")
-		runtime.GC()
+		log.Info("calling get-data request")
+		result := mongo.Database.Collection("test").FindOne(context.Background(), bson.M{"name": "test"})
+		if result.Err() != nil {
+			log.Errorw("failed to get data", "error", result.Err())
+		}
+
+		t := &Test{}
+		err = result.Decode(t)
+		if err != nil {
+			log.Errorw("failed to decode result", "error", err)
+		}
+
+		response, err := json.Marshal(t)
+		if err != nil {
+			log.Errorw("failed to marshal response", "error", err)
+		}
+
+		_, err = w.Write(response)
+		if err != nil {
+			log.Errorw("failed to write response", "error", err)
+		}
+
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -116,4 +157,5 @@ func main() {
 	}
 
 	log.Info("application stopped")
+
 }
