@@ -9,23 +9,33 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/caarlos0/env/v6"
 	"github.com/gorilla/mux"
+	"go.uber.org/zap"
 )
 
+type Config struct {
+	ServerPort string `env:"SERVER_PORT,required"`
+	DiagPort   string `env:"DIAG_PORT,required"`
+}
+
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		return
+	config := &Config{}
+
+	err := env.Parse(config)
+	if err != nil {
+		panic(err)
 	}
 
-	diagPort := os.Getenv("DIAG_PORT")
-	if diagPort == "" {
-		return
-	}
+	logger, _ := zap.NewProduction()
+	defer logger.Sync()
+	log := logger.Sugar()
+
+	log.Info("starting application")
 
 	r := mux.NewRouter()
 	server := http.Server{
-		Addr:    net.JoinHostPort("", port),
+		Addr:    net.JoinHostPort("", config.ServerPort),
 		Handler: r,
 	}
 
@@ -36,7 +46,7 @@ func main() {
 	})
 
 	diag := http.Server{
-		Addr:    net.JoinHostPort("", diagPort),
+		Addr:    net.JoinHostPort("", config.DiagPort),
 		Handler: diagRouter,
 	}
 
@@ -62,15 +72,17 @@ func main() {
 	select {
 	case x := <-interrupt:
 		// Received a signal
+		log.Infof("got interrupt signal, exiting: %v", x)
 
 	case err := <-shutdown:
 		// Received a shutdown message
+		log.Errorf("server err received: %v", err)
 	}
 
 	timeout, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFunc()
 
-	err := diag.Shutdown(timeout)
+	err = diag.Shutdown(timeout)
 	if err != nil {
 		// ?
 	}
@@ -79,4 +91,6 @@ func main() {
 	if err != nil {
 		// ?
 	}
+
+	log.Info("application stopped")
 }
